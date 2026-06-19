@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use ProxyAudit, please cite it as below."
+title: "Causal Certificates for Proxy Discrimination: An Exact Bridge from Demographic Parity to Per-Decision Necessity and Sufficiency"
+authors:
+  - family-names: "Le"
+    given-names: "Vo Minh Thu"
+version: 1.0.0
+date-released: 2026-06-15
+license: MIT
+keywords:
+  - algorithmic fairness
+  - explainable AI
+  - shapley values
+  - proxy discrimination
+  - counterfactual explanations
