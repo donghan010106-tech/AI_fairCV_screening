@@ -14,6 +14,7 @@ A product-style auditor with two business roles that share one audit:
 
 Everything is computed by the `proxyaudit` package; nothing is mocked.
 """
+pip install -r requirements.txt
 from __future__ import annotations
 import os, sys
 import numpy as np
