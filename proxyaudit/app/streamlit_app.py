@@ -2,6 +2,7 @@
 
     pip install -e ".[app]"
     streamlit run app/streamlit_app.py
+    pip install -r requirements.txt
 
 A product-style auditor with two business roles that share one audit:
 
@@ -14,7 +15,6 @@ A product-style auditor with two business roles that share one audit:
 
 Everything is computed by the `proxyaudit` package; nothing is mocked.
 """
-pip install -r requirements.txt
 from __future__ import annotations
 import os, sys
 import numpy as np
