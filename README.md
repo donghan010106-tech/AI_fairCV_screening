@@ -11,7 +11,7 @@ SHAP explanations and a human-in-the-loop workflow.
 
 ## Pipeline
 
-![FairCV pipeline](docs/architecture_diagram.png)
+![FairCV pipeline](results/figures/DAP_FairCV.drawio.png)
 
 From data sources → preprocessing (structured + text streams) → models (LR/RF/MLP) and
 fusion architectures → fairness evaluation core → XAI → reports & application output.
@@ -49,9 +49,9 @@ faircv-capstone/
 │   ├── fusion_results.csv        # RQ1 + RQ2: performance & fairness
 │   ├── ablation_sbert.csv        # RQ3: SBERT ablation
 │   ├── bias_mitigation_results.csv  # RQ4: mitigation experiments
-│   └── figures/                  # SHAP plots (gender, ethnicity)
-├── docs/
-│   └── architecture_diagram.png  # End-to-end pipeline
+│   └── figures/
+│       ├── DAP_FairCV.drawio.png # End-to-end pipeline diagram
+│       └── shap_*.png            # SHAP plots (gender, ethnicity)
 ├── paper/                        # (to be added)
 └── README.md
 ```
@@ -169,11 +169,7 @@ LLM summary → SHAP explanation → chatbot → recruiter selects final candida
 
 ## References
 
-1. Peña et al. *Bias in multimodal AI: Testbed for fair automatic recruitment.* CVPRW 2020.
-2. Peña et al. *Human-centric multimodal ML: AI-based recruitment.* SN Computer Science, 2023.
-3. Swati, Roy, Ntoutsi. *Exploring Fusion Techniques in Multimodal AI-Based Recruitment: FairCVdb.* EWAF 2024.
-4. Hardt, Price, Srebro. *Equality of Opportunity in Supervised Learning.* NeurIPS 2016.
-5. Lundberg & Lee. *A Unified Approach to Interpreting Model Predictions (SHAP).* NeurIPS 2017.
+
 
 ---
 
