@@ -25,7 +25,14 @@ from extract_cv import process_cv, COMPETENCY, init_gemini
 
 def load_model(model_path="model_structured.pkl",
                scaler_path="scaler_structured.pkl"):
-    """Load the saved LR model + scaler from the notebook."""
+    """Load the saved LR model + scaler. Looks for the .pkl files in the same
+    folder as this script, so it works regardless of the working directory."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    # If only a filename is given, resolve it next to this script
+    if not os.path.isabs(model_path):
+        model_path = os.path.join(here, model_path)
+    if not os.path.isabs(scaler_path):
+        scaler_path = os.path.join(here, scaler_path)
     model  = joblib.load(model_path)
     scaler = joblib.load(scaler_path)
     return model, scaler
