@@ -168,15 +168,11 @@ except Exception as e:
     st.error(f"Could not load model or Gemini: {e}")
     st.stop()
 
-# --- Step 1: Job description ---
-st.subheader("1️⃣ Job posting")
-colj1, colj2 = st.columns([1, 2])
-with colj1:
-    job_title = st.text_input("Job title", value="Data Engineer")
-with colj2:
-    jd_text = st.text_area("Job description (optional, improves relevance)",
-                           height=80,
-                           placeholder="Paste the JD here: required skills, tools, experience...")
+# --- Fixed position: Data Engineer ---
+job_title = "Data Engineer"
+jd_text = ""
+st.subheader("1️⃣ Position: Data Engineer")
+st.caption("Candidates are scored for relevance to a Data Engineer role.")
 
 # --- Step 2: Upload ---
 st.subheader("2️⃣ Upload CVs")
