@@ -27,8 +27,8 @@ SHAP explanations and a human-in-the-loop workflow.
 ```
 faircv-capstone/
 ├── notebooks/
-│   ├── FairCV_EDA.ipynb          # Exploratory data analysis
-│   └── FairCV_Models.ipynb       # Models, fusion, fairness metrics, Group SHAP
+│   ├── FairCV_EDA.ipynb          
+│   └── FairCV_Models.ipynb       
 ├── app/
 │   ├── streamlit_app.py          # Recruiter-assist screening app
 │   ├── extract_cv.py             # CV PDF -> 8 features (Gemini + rubric)
@@ -40,12 +40,9 @@ faircv-capstone/
 │   ├── fusion_results.csv        # RQ1 + RQ2: performance & fairness per strategy
 │   ├── ablation_sbert.csv        # RQ3: SBERT ablation
 │   ├── bias_mitigation_results.csv  # RQ4: mitigation experiments
-│   └── figures/                  # SHAP plots (gender, ethnicity)
-├── docs/
-│   ├── architecture_diagram.png  # End-to-end pipeline
-│   └── AI_Audit_Log.xlsx         # AI usage audit + hallucination log
+│   └── figures/                  
 ├── paper/
-│   └── FairCV_Paper_Skeleton.md  # Paper draft skeleton
+│   └── 
 └── README.md
 ```
 
@@ -138,11 +135,6 @@ candidate (human-in-the-loop).
 
 ## References
 
-1. Peña et al. *Bias in multimodal AI: Testbed for fair automatic recruitment.* CVPRW 2020.
-2. Peña et al. *Human-centric multimodal ML: AI-based recruitment.* SN Computer Science, 2023.
-3. Swati, Roy, Ntoutsi. *Exploring Fusion Techniques in Multimodal AI-Based Recruitment: FairCVdb.* EWAF 2024.
-4. Hardt, Price, Srebro. *Equality of Opportunity in Supervised Learning.* NeurIPS 2016.
-5. Lundberg & Lee. *A Unified Approach to Interpreting Model Predictions (SHAP).* NeurIPS 2017.
 
 ---
 
