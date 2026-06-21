@@ -11,7 +11,7 @@ SHAP explanations and a human-in-the-loop workflow.
 
 ## Pipeline
 
-![FairCV pipeline](results/figures/DAP_FairCV.drawio.png)
+![FairCV pipeline](result/figures/DAP_FairCV.drawio.png)
 
 From data sources → preprocessing (structured + text streams) → models (LR/RF/MLP) and
 fusion architectures → fairness evaluation core → XAI → reports & application output.
