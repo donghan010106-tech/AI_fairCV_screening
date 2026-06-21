@@ -142,8 +142,18 @@ st.caption("Recruiter-assist tool. The model is blind to gender/ethnicity. "
            "Final decision is always the recruiter's.")
 
 st.sidebar.header("Settings")
-api_key = st.sidebar.text_input("Gemini API key", type="password",
-                                help="Free at aistudio.google.com/apikey")
+
+# API key: prefer Streamlit Secrets (hidden on server); fall back to user input.
+api_key = ""
+try:
+    api_key = st.secrets["GEMINI_API_KEY"]          # set in Streamlit Cloud > Secrets
+except Exception:
+    api_key = ""
+
+if not api_key:
+    api_key = st.sidebar.text_input("Gemini API key", type="password",
+                                    help="Free at aistudio.google.com/apikey")
+
 threshold = st.sidebar.slider("Shortlist threshold", 0.0, 1.0, 0.5, 0.05)
 top_n = st.sidebar.number_input("Top N to show", 3, 50, 10)
 
