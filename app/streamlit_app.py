@@ -146,6 +146,15 @@ if uploaded and st.button("▶ Run screening", type="primary"):
             feats = out["features"].copy()
             feats[0] = round(suit, 4)              # index 0 = suitability
 
+            # DEBUG: Print features before prediction
+            print(f"\n{'='*80}")
+            print(f"DEBUG: {uf.name}")
+            print(f"  feats length: {len(feats)}")
+            print(f"  feats values: {feats}")
+            print(f"  detected_role: {out['detected_role']}")
+            print(f"  suitability from SBERT: {suit:.4f}")
+            print(f"{'='*80}\n")
+
             # main score from Structured LR
             prob, _ = predict(feats, "struct_lr")
             decision = "Shortlisted" if prob >= threshold else "Not Shortlisted"
