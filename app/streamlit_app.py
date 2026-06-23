@@ -146,22 +146,13 @@ if uploaded and st.button("▶ Run screening", type="primary"):
             feats = out["features"].copy()
             feats[0] = round(suit, 4)              # index 0 = suitability
 
-            # DEBUG: Print features before prediction
-            print(f"\n{'='*80}")
-            print(f"DEBUG: {uf.name}")
-            print(f"  feats length: {len(feats)}")
-            print(f"  feats values: {feats}")
-            print(f"  detected_role: {out['detected_role']}")
-            print(f"  suitability from SBERT: {suit:.4f}")
-            print(f"{'='*80}\n")
-
             # main score from Structured LR
             prob, _ = predict(feats, "struct_lr")
             decision = "Shortlisted" if prob >= threshold else "Not Shortlisted"
 
-            # all-model scores for the comparison view
+            # model scores: LR + Early Fusion RF only
             score_lr = prob
-            score_rf, _ = predict(feats, "struct_rf")
+            # score_rf, _ = predict(feats, "struct_rf")  # ← REMOVED
             score_ef, _ = predict(feats, "early_rf", bio_text=out.get("bio_summary", ""))
 
             row = {"CV": uf.name, "Role": out["detected_role"],
@@ -169,7 +160,7 @@ if uploaded and st.button("▶ Run screening", type="primary"):
                    "Score": round(prob, 4), "Decision": decision,
                    "bio": out.get("bio_summary", ""),
                    "score_lr": round(score_lr, 4),
-                   "score_rf": round(score_rf, 4),
+                   # "score_rf": round(score_rf, 4),  # ← REMOVED
                    "score_ef": round(score_ef, 4)}
             for f, v in zip(COMPETENCY, feats):
                 row[f] = v
@@ -211,27 +202,27 @@ if "result" in st.session_state:
 
     # --- Model comparison: accuracy vs fairness trade-off (for experts) ---
     with st.expander("🔬 Model comparison — accuracy vs. fairness trade-off"):
-        st.markdown("Three models scored every candidate. They trade off differently: "
+        st.markdown("Two models scored every candidate. They trade off differently: "
                     "the structured model is most **accurate**, while the SBERT fusion "
                     "model is the **fairest** on gender.")
         comp = pd.DataFrame([
             {"Model": MODEL_INFO["struct_lr"]["name"], "Accuracy": MODEL_INFO["struct_lr"]["acc"],
              "F1": MODEL_INFO["struct_lr"]["f1"], "DP Gap (Gender)": MODEL_INFO["struct_lr"]["dp_gender"]},
-            {"Model": MODEL_INFO["struct_rf"]["name"], "Accuracy": MODEL_INFO["struct_rf"]["acc"],
-             "F1": MODEL_INFO["struct_rf"]["f1"], "DP Gap (Gender)": MODEL_INFO["struct_rf"]["dp_gender"]},
+            # {"Model": MODEL_INFO["struct_rf"]["name"], "Accuracy": MODEL_INFO["struct_rf"]["acc"],
+            #  "F1": MODEL_INFO["struct_rf"]["f1"], "DP Gap (Gender)": MODEL_INFO["struct_rf"]["dp_gender"]},
             {"Model": MODEL_INFO["early_rf"]["name"], "Accuracy": MODEL_INFO["early_rf"]["acc"],
              "F1": MODEL_INFO["early_rf"]["f1"], "DP Gap (Gender)": MODEL_INFO["early_rf"]["dp_gender"]},
         ])
         st.dataframe(comp, use_container_width=True, hide_index=True)
         st.markdown("- **Most accurate:** Structured-Only LR (F1 0.9658)\n"
-                    "- **Fairest on gender:** Early Fusion RF (DP gap 0.0019) — but lowest accuracy\n"
+                    "- **Fairest on gender:** Early Fusion RF (DP gap 0.0019) — but lower accuracy\n"
                     "- This is the **fairness–accuracy trade-off**: adding SBERT text fusion "
                     "improves gender fairness but reduces accuracy.")
 
-        # per-candidate: 3 model scores
+        # per-candidate: 2 model scores
         st.markdown("**Per-candidate scores from each model:**")
-        show = df[["Rank", "CV", "score_lr", "score_rf", "score_ef"]].copy()
-        show.columns = ["Rank", "CV", "Structured LR", "Structured RF", "Early Fusion RF"]
+        show = df[["Rank", "CV", "score_lr", "score_ef"]].copy()
+        show.columns = ["Rank", "CV", "Structured LR", "Early Fusion RF"]
         st.dataframe(show.head(int(top_n)), use_container_width=True, hide_index=True)
 
     st.divider()
