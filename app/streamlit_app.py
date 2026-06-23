@@ -150,9 +150,8 @@ if uploaded and st.button("▶ Run screening", type="primary"):
             prob, _ = predict(feats, "struct_lr")
             decision = "Shortlisted" if prob >= threshold else "Not Shortlisted"
 
-            # model scores: LR + Early Fusion RF only
+            # all-model scores: LR + Early Fusion only
             score_lr = prob
-            # score_rf, _ = predict(feats, "struct_rf")  # ← REMOVED
             score_ef, _ = predict(feats, "early_rf", bio_text=out.get("bio_summary", ""))
 
             row = {"CV": uf.name, "Role": out["detected_role"],
@@ -160,7 +159,6 @@ if uploaded and st.button("▶ Run screening", type="primary"):
                    "Score": round(prob, 4), "Decision": decision,
                    "bio": out.get("bio_summary", ""),
                    "score_lr": round(score_lr, 4),
-                   # "score_rf": round(score_rf, 4),  # ← REMOVED
                    "score_ef": round(score_ef, 4)}
             for f, v in zip(COMPETENCY, feats):
                 row[f] = v
@@ -208,8 +206,6 @@ if "result" in st.session_state:
         comp = pd.DataFrame([
             {"Model": MODEL_INFO["struct_lr"]["name"], "Accuracy": MODEL_INFO["struct_lr"]["acc"],
              "F1": MODEL_INFO["struct_lr"]["f1"], "DP Gap (Gender)": MODEL_INFO["struct_lr"]["dp_gender"]},
-            # {"Model": MODEL_INFO["struct_rf"]["name"], "Accuracy": MODEL_INFO["struct_rf"]["acc"],
-            #  "F1": MODEL_INFO["struct_rf"]["f1"], "DP Gap (Gender)": MODEL_INFO["struct_rf"]["dp_gender"]},
             {"Model": MODEL_INFO["early_rf"]["name"], "Accuracy": MODEL_INFO["early_rf"]["acc"],
              "F1": MODEL_INFO["early_rf"]["f1"], "DP Gap (Gender)": MODEL_INFO["early_rf"]["dp_gender"]},
         ])
@@ -224,6 +220,72 @@ if "result" in st.session_state:
         show = df[["Rank", "CV", "score_lr", "score_ef"]].copy()
         show.columns = ["Rank", "CV", "Structured LR", "Early Fusion RF"]
         st.dataframe(show.head(int(top_n)), use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # --- Feature Importance: What drives the model decisions? ---
+    st.subheader("📈 Feature Importance — What matters most?")
+    st.caption("When two candidates have similar scores, these features decide.")
+    
+    # Calculate feature importance from LR coefficients
+    lr_model = get_model("struct_lr")
+    coef = lr_model.coef_[0]
+    
+    importance_data = []
+    for feat, c in zip(COMPETENCY, coef):
+        importance_data.append({
+            "Feature": FEATURE_LABELS.get(feat, feat),
+            "Coefficient": float(c),
+            "Impact_Direction": "↑ Positive" if c > 0 else "↓ Negative",
+            "Abs_Importance": abs(c)
+        })
+    
+    importance_df = pd.DataFrame(importance_data).sort_values("Abs_Importance", ascending=False)
+    
+    # Two columns: chart + explanation
+    c1, c2 = st.columns([1.2, 1])
+    
+    with c1:
+        # Bar chart of feature importance
+        fig, ax = plt.subplots(figsize=(8, 5))
+        colors = ["#2E9E5B" if x >= 0 else "#C2384A" for x in importance_df["Coefficient"]]
+        ax.barh(importance_df["Feature"], importance_df["Coefficient"], color=colors)
+        ax.axvline(0, color="gray", lw=0.8)
+        ax.set_xlabel("Coefficient (impact on score)")
+        ax.set_title("Feature Importance: LR Model Coefficients", fontweight="bold")
+        for sp in ["top", "right"]:
+            ax.spines[sp].set_visible(False)
+        plt.tight_layout()
+        st.pyplot(fig)
+    
+    with c2:
+        st.markdown("**Top 3 Most Important:**")
+        for i, (_, row) in enumerate(importance_df.head(3).iterrows(), 1):
+            st.markdown(f"**{i}. {row['Feature']}**")
+            st.markdown(f"   Coef: {row['Coefficient']:+.4f} {row['Impact_Direction']}")
+            if i == 1:
+                st.markdown(f"   ← **Affects score the most!**")
+        
+        st.markdown("---")
+        st.markdown("**When 2 CVs tie:**")
+        st.markdown("1. Compare **" + importance_df.iloc[0]["Feature"] + "**")
+        st.markdown("2. Then compare **" + importance_df.iloc[1]["Feature"] + "**")
+        st.markdown("3. Then compare **" + importance_df.iloc[2]["Feature"] + "**")
+    
+    # Full table
+    st.markdown("**Full ranking:**")
+    show_importance = importance_df[["Feature", "Coefficient", "Impact_Direction"]].copy()
+    show_importance.columns = ["Feature", "Coefficient", "Direction"]
+    st.dataframe(show_importance, use_container_width=True, hide_index=True)
+    
+    st.info("""
+    **Interpretation:**
+    - **Positive coefficient** (↑): Increasing this feature increases the score
+    - **Negative coefficient** (↓): Increasing this feature decreases the score
+    - **Larger |coefficient|**: Feature has more impact on model decision
+    
+    **Example:** If Suitability coef = +2.54, increasing suitability by 0.1 → score ↑ 0.254
+    """)
 
     st.divider()
 
