@@ -1,23 +1,22 @@
 """
-streamlit_app.py - FairCV Resume Screening App
+streamlit_app.py - FairCV Resume Screening App (multi-model, fairness trade-off)
 
-Full pipeline:
-  1. Recruiter enters Job title + Job Description
+Pipeline:
+  1. Recruiter enters the target position (flexible)
   2. Upload CV PDFs
-  3. Extract 8 features (Gemini)
-  4. LR model predicts score
-  5. Rank -> Top N -> Top 3
-  6. LLM summarizes Top 10 + explains Top 3
-  7. SHAP-style bar chart per candidate
+  3. Gemini extracts 7 features + writes a FairCVdb-style bio
+  4. SBERT computes suitability = similarity(role, target position)
+  5. Main model (Structured LR) predicts score -> rank -> Top N -> Top 3
+  6. Model comparison: Structured LR / Structured RF / Early Fusion RF (SBERT)
+     highlighting the accuracy vs fairness trade-off
+  7. SHAP bar chart per candidate
   8. Chatbot explains score & fairness
   9. Recruiter selects the final candidate (human-in-the-loop)
 
-Run:
-    streamlit run streamlit_app.py
-
-Same folder: extract_cv.py, screening.py, model_structured.pkl, scaler_structured.pkl
+Same folder: extract_cv.py, fusion_predict.py, and the 4 .pkl files
 Install:
-    pip install streamlit google-generativeai pypdf joblib scikit-learn matplotlib pandas
+    pip install streamlit google-generativeai pypdf joblib scikit-learn
+                matplotlib pandas sentence-transformers numpy
 """
 
 import os
@@ -28,39 +27,31 @@ import matplotlib.pyplot as plt
 import streamlit as st
 
 from extract_cv import process_cv, init_gemini, COMPETENCY
-from screening import load_model, predict_one
+from fusion_predict import predict, role_suitability, get_scaler, get_model, MODEL_INFO
 
 st.set_page_config(page_title="FairCV Screening", layout="wide", page_icon="📋")
 
 GEMINI_MODEL = "gemini-2.5-flash"
 
 FEATURE_LABELS = {
-    "suitability":     "Job Suitability",
-    "educ_attainment": "Education",
-    "prev_experience": "Experience",
-    "recommendation":  "References",
-    "availability":    "Availability",
-    "lang_prof_1":     "English",
-    "lang_prof_2":     "Language 2",
-    "lang_prof_3":     "Language 3",
+    "suitability": "Job Suitability", "educ_attainment": "Education",
+    "prev_experience": "Experience", "recommendation": "References",
+    "availability": "Availability", "lang_prof_1": "English",
+    "lang_prof_2": "Language 2", "lang_prof_3": "Language 3",
 }
 
-
-@st.cache_resource
-def get_model():
-    return load_model()
 
 @st.cache_resource
 def get_gemini(api_key):
     return init_gemini(api_key, model_name=GEMINI_MODEL)
 
 
-# ---------------------------------------------------------------- SHAP
-def feature_contributions(features, model, scaler):
-    X = np.array(features, dtype=float).reshape(1, -1)
-    Xs = scaler.transform(X)[0]
-    coef = model.coef_[0]
-    contribs = coef * Xs
+# ---- SHAP-style explanation (Structured LR = linear, exact) ----------
+def feature_contributions(features):
+    model = get_model("struct_lr")
+    scaler = get_scaler()
+    Xs = scaler.transform(np.array(features, dtype=float).reshape(1, -1))[0]
+    contribs = model.coef_[0] * Xs
     pairs = [(FEATURE_LABELS.get(f, f), float(c))
              for f, c in zip(COMPETENCY, contribs)]
     pairs.sort(key=lambda t: abs(t[1]), reverse=True)
@@ -69,112 +60,76 @@ def feature_contributions(features, model, scaler):
 
 def plot_contributions(pairs, cv_name):
     labels = [p[0] for p in pairs][::-1]
-    vals   = [p[1] for p in pairs][::-1]
+    vals = [p[1] for p in pairs][::-1]
     colors = ["#2E9E5B" if v >= 0 else "#C2384A" for v in vals]
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.barh(labels, vals, color=colors)
     ax.axvline(0, color="gray", lw=0.8)
-    ax.set_xlabel("Contribution to score  (green = raises, red = lowers)")
-    ax.set_title(f"Why this score? — {cv_name}", fontweight="bold")
+    ax.set_xlabel("Contribution to score (green = raises, red = lowers)")
+    ax.set_title(f"What drives this score? — {cv_name}", fontweight="bold")
     for sp in ["top", "right"]:
         ax.spines[sp].set_visible(False)
     plt.tight_layout()
     return fig
 
 
-# ------------------------------------------------------------- LLM summary
-def summarize_top(gemini_model, df, job_title, top_k=10, shortlist_k=3):
-    top = df.head(top_k)
-    lines = []
-    for _, r in top.iterrows():
-        lines.append(f"#{r['Rank']} {r['CV']} | role: {r['Role']} | "
-                     f"score: {r['Score']:.3f} | {r['Decision']}")
-    table = "\n".join(lines)
-    prompt = f"""You are an HR assistant for a {job_title} hiring process.
-Below is the AI-ranked Top {top_k} candidates (score 0-1, higher = better fit).
-
-{table}
-
-Write a concise summary in two parts:
-1. A 2-3 sentence overview of the candidate pool quality.
-2. Recommend the TOP {shortlist_k} candidates to shortlist. For each, give ONE short
-   sentence on why (based on role relevance and score).
-
-Be honest and concise. Remember the recruiter makes the final decision; this is advisory."""
-    return gemini_model.generate_content(prompt).text
-
-
-# ------------------------------------------------------------- Chatbot
-def build_chat_context(row):
+# ---- Chatbot ---------------------------------------------------------
+def ask_chatbot(gemini_model, row, question, target):
     feat_lines = "\n".join(
         f"  - {FEATURE_LABELS.get(f, f)}: {row[f]:.2f}" for f in COMPETENCY)
-    return (f"Candidate: {row['CV']}\nDetected role: {row['Role']}\n"
-            f"Detected industry: {row['Industry']}\n"
-            f"Final score: {row['Score']:.4f}  ({row['Decision']})\n"
-            f"8 competency features (0=low, 1=high):\n{feat_lines}")
-
-
-def ask_chatbot(gemini_model, context, question, job_title):
-    prompt = f"""You are an HR assistant explaining an AI resume-screening result for a
-{job_title} position. Be concise, clear, and honest.
+    prompt = f"""You are an HR assistant explaining an AI resume-screening result for the
+position: {target}. Be concise, clear, and honest.
 
 System facts:
-- The model scores candidates from 8 structured competency features (each 0-1).
-- 'Job Suitability' measures how relevant the candidate's background is to the role.
-- The model was trained on the FairCVdb fairness benchmark as a 'blind' model:
-  it never sees gender or ethnicity, so it does not use protected attributes directly.
+- The score comes from 8 competency features (each 0-1).
+- 'Job Suitability' is the semantic similarity between the candidate's role and the
+  target position (computed with Sentence-BERT).
+- The model is trained on FairCVdb as a 'blind' model: it never sees gender or
+  ethnicity, so it does not use protected attributes directly.
 - The recruiter always makes the final hiring decision (human-in-the-loop).
 
-CANDIDATE RESULT:
-{context}
+CANDIDATE: {row['CV']} | role: {row['Role']} | score: {row['Score']:.3f} ({row['Decision']})
+Features:
+{feat_lines}
 
-RECRUITER QUESTION: {question}
+QUESTION: {question}
 
 Answer in 3-6 sentences. For fairness questions, explain the model does not use
-gender/ethnicity, the score reflects only the competency features, and name which
-features most affected this candidate."""
+gender/ethnicity and name which features most affected this candidate."""
     return gemini_model.generate_content(prompt).text
 
 
 # ====================================================================== UI
 st.title("📋 FairCV — AI Resume Screening")
-st.caption("Recruiter-assist tool. The model is blind to gender/ethnicity. "
-           "Final decision is always the recruiter's.")
+st.caption("Blind to gender/ethnicity · explainable · the recruiter decides. "
+           "Compares structured vs. fusion models and their fairness trade-off.")
 
 st.sidebar.header("Settings")
-
-# API key: prefer Streamlit Secrets (hidden on server); fall back to user input.
 api_key = ""
 try:
-    api_key = st.secrets["GEMINI_API_KEY"]          # set in Streamlit Cloud > Secrets
+    api_key = st.secrets["GEMINI_API_KEY"]
 except Exception:
     api_key = ""
-
 if not api_key:
-    api_key = st.sidebar.text_input("Gemini API key", type="password",
-                                    help="Free at aistudio.google.com/apikey")
-
+    api_key = st.sidebar.text_input("Gemini API key", type="password")
 threshold = st.sidebar.slider("Shortlist threshold", 0.0, 1.0, 0.5, 0.05)
-top_n = st.sidebar.number_input("Top N to show", 3, 50, 10)
+top_n = st.sidebar.number_input("Top N to show", 2, 50, 10)
 
 if not api_key:
-    st.info("👈 Enter your Gemini API key in the sidebar to start.")
+    st.info("👈 Enter your Gemini API key to start.")
     st.stop()
 
 try:
-    model, scaler = get_model()
     gemini = get_gemini(api_key)
 except Exception as e:
-    st.error(f"Could not load model or Gemini: {e}")
+    st.error(f"Gemini init failed: {e}")
     st.stop()
 
-# --- Fixed position: Data Engineer ---
-job_title = "Data Engineer"
-jd_text = ""
-st.subheader("1️⃣ Position: Data Engineer")
-st.caption("Candidates are scored for relevance to a Data Engineer role.")
+# --- Step 1: target position (flexible) ---
+st.subheader("1️⃣ Position you are hiring for")
+target = st.text_input("Target position", value="Data Engineer")
 
-# --- Step 2: Upload ---
+# --- Step 2: upload ---
 st.subheader("2️⃣ Upload CVs")
 uploaded = st.file_uploader("CV PDFs", type="pdf", accept_multiple_files=True)
 
@@ -185,13 +140,29 @@ if uploaded and st.button("▶ Run screening", type="primary"):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             tmp.write(uf.getvalue()); tmp_path = tmp.name
         try:
-            out = process_cv(tmp_path, gemini, job_title=job_title, jd_text=jd_text)
-            prob, _ = predict_one(out["features"], model, scaler)
+            out = process_cv(tmp_path, gemini, job_title=target)
+            # suitability via SBERT (overrides Gemini's guess)
+            suit = role_suitability(out["detected_role"], target)
+            feats = out["features"].copy()
+            feats[0] = round(suit, 4)              # index 0 = suitability
+
+            # main score from Structured LR
+            prob, _ = predict(feats, "struct_lr")
             decision = "Shortlisted" if prob >= threshold else "Not Shortlisted"
+
+            # all-model scores for the comparison view
+            score_lr = prob
+            score_rf, _ = predict(feats, "struct_rf")
+            score_ef, _ = predict(feats, "early_rf", bio_text=out.get("bio_summary", ""))
+
             row = {"CV": uf.name, "Role": out["detected_role"],
                    "Industry": out["detected_industry"],
-                   "Score": round(prob, 4), "Decision": decision}
-            for f, v in zip(COMPETENCY, out["features"]):
+                   "Score": round(prob, 4), "Decision": decision,
+                   "bio": out.get("bio_summary", ""),
+                   "score_lr": round(score_lr, 4),
+                   "score_rf": round(score_rf, 4),
+                   "score_ef": round(score_ef, 4)}
+            for f, v in zip(COMPETENCY, feats):
                 row[f] = v
             rows.append(row)
         except Exception as e:
@@ -207,73 +178,93 @@ if uploaded and st.button("▶ Run screening", type="primary"):
     df = pd.DataFrame(rows).sort_values("Score", ascending=False).reset_index(drop=True)
     df.insert(0, "Rank", df.index + 1)
     st.session_state["result"] = df
-    st.session_state["job_title"] = job_title
-    st.session_state.pop("summary", None)      # reset old summary
+    st.session_state["target"] = target
     st.session_state.pop("final_pick", None)
 
-# --- Results ---
+# ---- Results ----
 if "result" in st.session_state:
     df = st.session_state["result"]
-    job_title = st.session_state.get("job_title", "Data Engineer")
+    target = st.session_state.get("target", "Data Engineer")
 
+    # --- Simple view: ranking (for everyone) ---
     st.subheader("🏆 Ranking")
-    show_cols = ["Rank", "CV", "Role", "Industry", "Score", "Decision"]
-    st.dataframe(df[show_cols].head(int(top_n)), use_container_width=True, hide_index=True)
+    st.caption(f"Scored for: **{target}**. Higher = better fit.")
+    st.dataframe(df[["Rank", "CV", "Role", "Score", "Decision"]].head(int(top_n)),
+                 use_container_width=True, hide_index=True)
 
-    # --- LLM summary of Top 10 + Top 3 ---
-    st.subheader("🤖 AI summary & shortlist recommendation")
-    if st.button("Generate summary"):
-        with st.spinner("Summarizing..."):
-            try:
-                st.session_state["summary"] = summarize_top(
-                    gemini, df, job_title, top_k=min(10, len(df)))
-            except Exception as e:
-                st.error(f"Summary error: {e}")
-    if "summary" in st.session_state:
-        st.markdown(st.session_state["summary"])
-    st.caption("⚠️ Advisory only. The recruiter makes the final decision.")
+    st.subheader("⭐ Top 3 Shortlist (recommended)")
+    for _, r in df.head(3).iterrows():
+        st.markdown(f"**#{r['Rank']} · {r['CV']}** — {r['Role']} · "
+                    f"score **{r['Score']:.3f}** · {r['Decision']}")
+    st.caption("⚠️ Advisory. The recruiter makes the final decision.")
 
     st.divider()
 
-    # --- Explanation ---
+    # --- Model comparison: accuracy vs fairness trade-off (for experts) ---
+    with st.expander("🔬 Model comparison — accuracy vs. fairness trade-off"):
+        st.markdown("Three models scored every candidate. They trade off differently: "
+                    "the structured model is most **accurate**, while the SBERT fusion "
+                    "model is the **fairest** on gender.")
+        comp = pd.DataFrame([
+            {"Model": MODEL_INFO["struct_lr"]["name"], "Accuracy": MODEL_INFO["struct_lr"]["acc"],
+             "F1": MODEL_INFO["struct_lr"]["f1"], "DP Gap (Gender)": MODEL_INFO["struct_lr"]["dp_gender"]},
+            {"Model": MODEL_INFO["struct_rf"]["name"], "Accuracy": MODEL_INFO["struct_rf"]["acc"],
+             "F1": MODEL_INFO["struct_rf"]["f1"], "DP Gap (Gender)": MODEL_INFO["struct_rf"]["dp_gender"]},
+            {"Model": MODEL_INFO["early_rf"]["name"], "Accuracy": MODEL_INFO["early_rf"]["acc"],
+             "F1": MODEL_INFO["early_rf"]["f1"], "DP Gap (Gender)": MODEL_INFO["early_rf"]["dp_gender"]},
+        ])
+        st.dataframe(comp, use_container_width=True, hide_index=True)
+        st.markdown("- **Most accurate:** Structured-Only LR (F1 0.9658)\n"
+                    "- **Fairest on gender:** Early Fusion RF (DP gap 0.0019) — but lowest accuracy\n"
+                    "- This is the **fairness–accuracy trade-off**: adding SBERT text fusion "
+                    "improves gender fairness but reduces accuracy.")
+
+        # per-candidate: 3 model scores
+        st.markdown("**Per-candidate scores from each model:**")
+        show = df[["Rank", "CV", "score_lr", "score_rf", "score_ef"]].copy()
+        show.columns = ["Rank", "CV", "Structured LR", "Structured RF", "Early Fusion RF"]
+        st.dataframe(show.head(int(top_n)), use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # --- Explain a candidate ---
     st.subheader("🔍 Explain a candidate")
     pick = st.selectbox("Choose a CV", df["CV"].tolist())
     row = df[df["CV"] == pick].iloc[0]
     c1, c2 = st.columns([1, 1])
     with c1:
-        feats = [row[f] for f in COMPETENCY]
-        st.pyplot(plot_contributions(feature_contributions(feats, model, scaler), pick))
+        st.pyplot(plot_contributions(feature_contributions([row[f] for f in COMPETENCY]), pick))
     with c2:
         st.markdown("**Feature values**")
         st.dataframe(pd.DataFrame({
             "Feature": [FEATURE_LABELS.get(f, f) for f in COMPETENCY],
-            "Value":   [row[f] for f in COMPETENCY]}),
+            "Value": [row[f] for f in COMPETENCY]}),
             use_container_width=True, hide_index=True)
+        if row.get("bio"):
+            st.caption(f"📝 Generated bio (FairCVdb style): {row['bio'][:200]}")
 
     # --- Chatbot ---
     st.subheader("💬 Ask about this result")
     st.caption(f"Discussing: **{pick}**")
     q = st.text_input("Your question",
-                      placeholder="e.g. Why is this score low? Is it fair?")
+                      placeholder="e.g. Why this score? Is it fair? What if two CVs tie?")
     if q:
         with st.spinner("Thinking..."):
             try:
-                st.markdown(ask_chatbot(gemini, build_chat_context(row), q, job_title))
+                st.markdown(ask_chatbot(gemini, row, q, target))
             except Exception as e:
                 st.error(f"Chatbot error: {e}")
 
     st.divider()
 
-    # --- Step: recruiter final decision (human-in-the-loop) ---
+    # --- Recruiter final decision ---
     st.subheader("✅ Final decision (recruiter)")
     st.caption("The AI only recommends. You choose who to hire.")
-    final = st.selectbox("Select the candidate you choose to advance",
+    final = st.selectbox("Select the candidate you advance",
                          ["— none yet —"] + df["CV"].tolist())
-    if final != "— none yet —":
-        if st.button("Confirm selection", type="primary"):
-            st.session_state["final_pick"] = final
+    if final != "— none yet —" and st.button("Confirm selection", type="primary"):
+        st.session_state["final_pick"] = final
     if st.session_state.get("final_pick"):
         fr = df[df["CV"] == st.session_state["final_pick"]].iloc[0]
-        st.success(f"✔ Recruiter selected: **{fr['CV']}** "
-                   f"({fr['Role']}) — score {fr['Score']:.3f}. "
-                   "Decision recorded by a human, not the AI.")
+        st.success(f"✔ Recruiter selected: **{fr['CV']}** ({fr['Role']}) — "
+                   f"score {fr['Score']:.3f}. Decision made by a human, not the AI.")

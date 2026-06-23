@@ -73,6 +73,17 @@ Extract these fields:
 10. other_languages - list of languages OTHER than English explicitly stated, each item:
     {"language":"name","level":"native/fluent/intermediate/basic"}. None -> [].
 
+11. bio_summary - Write a SHORT third-person career biography (2-4 sentences) that
+    imitates this exact style (anonymized, formal, career-focused):
+    Example 1: "_ was made a partner of KPMG in 1984. _ served as a member of the UK
+    board from 2000 to 2006, subsequently appointed vice chairman until _ retirement
+    in 2010. _ held senior positions including global chairman, financial services."
+    Example 2: "_ graduated with honors from University of Iowa in 2014. Having more
+    than 3 years of experience, especially in NURSE PRACTITIONER, _ affiliates with
+    many hospitals including Covenant Medical Center."
+    Rules: use "_" instead of any name; mention degree+year, years of experience,
+    role, and employers; keep it concise and formal; one short paragraph.
+
 Each field (3-10) includes "confidence": "high"/"medium"/"low".
 
 RETURN ONLY a single JSON object, NO markdown, NO explanation:
@@ -86,7 +97,8 @@ RETURN ONLY a single JSON object, NO markdown, NO explanation:
   "has_references": {"value": false, "confidence": "high"},
   "availability": {"value": "not_stated", "confidence": "high"},
   "english_level": {"value": "fluent", "confidence": "medium"},
-  "other_languages": {"value": [], "confidence": "high"}
+  "other_languages": {"value": [], "confidence": "high"},
+  "bio_summary": "_ graduated from ... in YYYY. Having N years of experience in ROLE, _ worked at ..."
 }
 
 === CV CONTENT ===
@@ -194,6 +206,7 @@ def compute_features(raw: dict) -> dict:
         "confidence": conf,
         "detected_role": raw.get("detected_role", "unknown"),
         "detected_industry": raw.get("detected_industry", "unknown"),
+        "bio_summary": raw.get("bio_summary", ""),
         "raw_facts": raw,
     }
 
