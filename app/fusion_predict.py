@@ -1,14 +1,14 @@
 """
-fusion_predict.py - Multi-model prediction with SBERT support.
+fusion_predict.py - FIXED VERSION
+Multi-model prediction with SBERT support.
+
+FIX: RF không được scaled (train trên unscaled data)
+     LR, MLP, Early Fusion được scaled
 
 Models:
-  - Structured-Only LR  (8 features)        -> model_structured.pkl
-  - Structured-Only RF  (8 features)        -> base_structured_rf.pkl
-  - Early Fusion RF     (392 = 384 SBERT + 8) -> early_fusion_rf.pkl
-
-For Early Fusion, the app generates a short bio (FairCVdb style), encodes it with
-SBERT (all-MiniLM-L6-v2, 384-dim), concatenates with the scaled 8 structured
-features, and feeds the 392-dim vector to the RF model.
+  - Structured-Only LR  (8 features, SCALED)        -> model_structured.pkl
+  - Structured-Only RF  (8 features, UNSCALED)      -> base_structured_rf.pkl
+  - Early Fusion RF     (392 = 384 SBERT + 8, SCALED) -> early_fusion_rf.pkl
 
 Requires (same folder):
   model_structured.pkl, scaler_structured.pkl,
@@ -73,23 +73,30 @@ def predict(features, model_key, bio_text=""):
 
     Returns: (prob, label)
     """
-    scaler = get_scaler()
     x_struct = np.array(features, dtype=float).reshape(1, -1)   # (1,8)
-    x_struct_scaled = scaler.transform(x_struct)               # scale like training
-
-    if model_key == "early_rf":
-        # Encode bio with SBERT -> 384-dim, concat with scaled structured -> 392
+    
+    # ===== KEY FIX: Handle scaling per model =====
+    if model_key == "struct_rf":
+        # RF was trained on UNSCALED data
+        x = x_struct  # NO SCALING
+        model = get_model("struct_rf")
+    elif model_key == "early_rf":
+        # Early Fusion RF needs scaled structured + SBERT encoding
+        scaler = get_scaler()
+        x_struct_scaled = scaler.transform(x_struct)
         emb = get_sbert().encode([bio_text or ""], normalize_embeddings=True)  # (1,384)
         x = np.concatenate([emb, x_struct_scaled], axis=1)     # (1,392)
         model = get_model("early_rf")
     else:
-        x = x_struct_scaled                                    # (1,8)
+        # LR was trained on SCALED data
+        scaler = get_scaler()
+        x_struct_scaled = scaler.transform(x_struct)
+        x = x_struct_scaled  # (1,8)
         model = get_model(model_key)
 
     prob = float(model.predict_proba(x)[0, 1])
     label = "Shortlisted" if prob >= 0.5 else "Not Shortlisted"
     return prob, label
-
 
 
 # ---- suitability via SBERT role-to-position similarity ---------------
@@ -98,47 +105,42 @@ def role_suitability(detected_role, target_position):
     role (from CV) and the position being hired for.
 
     Strategy:
-    1. Check exact match / keyword overlap first (fallback if cosine is unreliable)
-    2. Use SBERT cosine similarity (normalized embeddings: cosine in [0,1])
-    3. Rescale smartly: cosine [0.3, 0.95] -> [0.0, 1.0]
-       - <0.3: very low match (0.0-0.2)
-       - 0.3-0.95: linear stretch (0.2-1.0)
-       - >0.95: high match (0.95-1.0)
+    1. Check exact match / keyword overlap first
+    2. Use SBERT cosine similarity
+    3. Rescale smartly to [0,1]
     """
     if not detected_role or not target_position:
-        return 0.5  # neutral default if missing
+        return 0.5
     
-    # Normalize strings for keyword matching
     role_lower = detected_role.lower().strip()
     target_lower = target_position.lower().strip()
     
-    # Exact match -> best score
+    # Exact match
     if role_lower == target_lower:
         return 1.0
     
-    # Keyword overlap: if role contains key words from target (or vice versa)
+    # Keyword overlap
     role_words = set(role_lower.split())
     target_words = set(target_lower.split())
-    overlap = role_words & target_words  # intersection
+    overlap = role_words & target_words
     if len(overlap) >= 2 or (len(overlap) == 1 and len(target_words) <= 3):
-        # Strong keyword match -> boost score
         return 0.85
     
-    # SBERT semantic similarity as tiebreaker
+    # SBERT semantic similarity
     model = get_sbert()
     emb = model.encode([detected_role, target_position], normalize_embeddings=True)
-    cos = float(np.dot(emb[0], emb[1]))  # cosine in [0, 1] for normalized vectors
+    cos = float(np.dot(emb[0], emb[1]))
     
-    # Smarter rescaling: [0.3, 0.95] -> [0.0, 1.0]
+    # Smarter rescaling
     if cos < 0.3:
-        scaled = cos * (0.2 / 0.3)         # 0-0.3 -> 0-0.2 (very poor match)
+        scaled = cos * (0.2 / 0.3)
     else:
-        scaled = 0.2 + (cos - 0.3) * (0.8 / 0.65)  # 0.3-0.95 -> 0.2-1.0
+        scaled = 0.2 + (cos - 0.3) * (0.8 / 0.65)
     
     return float(max(0.0, min(1.0, scaled)))
 
 
-# Model display names + metrics (from notebook benchmark, for the comparison table)
+# Model display names + metrics (from notebook benchmark)
 MODEL_INFO = {
     "struct_lr": {"name": "Structured-Only LR",
                   "acc": 0.9665, "f1": 0.9658,
