@@ -72,7 +72,9 @@ def plot_contributions(pairs, cv_name):
     plt.tight_layout()
     return fig
 
-
+# Main score from Structured LR
+prob, _ = predict(feats, "struct_lr")
+print(f"DEBUG feats length: {len(feats)}, values: {feats}")  # ← THÊM CÁI NÀY
 # ---- Chatbot ---------------------------------------------------------
 def ask_chatbot(gemini_model, row, question, target):
     feat_lines = "\n".join(
