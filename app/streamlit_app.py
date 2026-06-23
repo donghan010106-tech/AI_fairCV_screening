@@ -32,7 +32,7 @@ from screening import load_model, predict_one
 
 st.set_page_config(page_title="FairCV Screening", layout="wide", page_icon="📋")
 
-GEMINI_MODEL = "gemini-2.5-flash-lite"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 FEATURE_LABELS = {
     "suitability":     "Job Suitability",
