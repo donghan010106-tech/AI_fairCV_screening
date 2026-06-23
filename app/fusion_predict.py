@@ -97,18 +97,44 @@ def role_suitability(detected_role, target_position):
     """Compute suitability [0,1] = semantic similarity between the candidate's
     role (from CV) and the position being hired for.
 
-    Uses SBERT cosine similarity, then rescales: raw cosine for short job titles
-    typically lands in ~0.2-0.9, so we stretch it to use the [0,1] range better.
+    Strategy:
+    1. Check exact match / keyword overlap first (fallback if cosine is unreliable)
+    2. Use SBERT cosine similarity (normalized embeddings: cosine in [0,1])
+    3. Rescale smartly: cosine [0.3, 0.95] -> [0.0, 1.0]
+       - <0.3: very low match (0.0-0.2)
+       - 0.3-0.95: linear stretch (0.2-1.0)
+       - >0.95: high match (0.95-1.0)
     """
     if not detected_role or not target_position:
-        return 0.5            # neutral default if missing
+        return 0.5  # neutral default if missing
+    
+    # Normalize strings for keyword matching
+    role_lower = detected_role.lower().strip()
+    target_lower = target_position.lower().strip()
+    
+    # Exact match -> best score
+    if role_lower == target_lower:
+        return 1.0
+    
+    # Keyword overlap: if role contains key words from target (or vice versa)
+    role_words = set(role_lower.split())
+    target_words = set(target_lower.split())
+    overlap = role_words & target_words  # intersection
+    if len(overlap) >= 2 or (len(overlap) == 1 and len(target_words) <= 3):
+        # Strong keyword match -> boost score
+        return 0.85
+    
+    # SBERT semantic similarity as tiebreaker
     model = get_sbert()
     emb = model.encode([detected_role, target_position], normalize_embeddings=True)
-    cos = float(np.dot(emb[0], emb[1]))          # cosine in [-1, 1], usually [0, 1]
-
-    # Rescale: map cosine [0.2 .. 0.9] -> [0 .. 1], clamp outside.
-    lo, hi = 0.2, 0.9
-    scaled = (cos - lo) / (hi - lo)
+    cos = float(np.dot(emb[0], emb[1]))  # cosine in [0, 1] for normalized vectors
+    
+    # Smarter rescaling: [0.3, 0.95] -> [0.0, 1.0]
+    if cos < 0.3:
+        scaled = cos * (0.2 / 0.3)         # 0-0.3 -> 0-0.2 (very poor match)
+    else:
+        scaled = 0.2 + (cos - 0.3) * (0.8 / 0.65)  # 0.3-0.95 -> 0.2-1.0
+    
     return float(max(0.0, min(1.0, scaled)))
 
 
