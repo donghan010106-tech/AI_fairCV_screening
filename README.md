@@ -163,7 +163,7 @@ LLM summary → SHAP explanation → chatbot → recruiter selects final candida
 - Dong Bao Han
 - Pham Hoang Tu Ngan
 
-**Mentor:** Le Vo Minh Thu (HCMUS, VNU-HCM)
+**Mentor:** Le Vo Minh Thu 
 
 ---
 
