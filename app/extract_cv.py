@@ -249,7 +249,7 @@ def process_cv(pdf_path: str, model,
     return result
 
 
-def init_gemini(api_key: str, model_name: str = "gemini-2.5-flash-lite"):
+def init_gemini(api_key: str, model_name: str = "gemini-2.5-flash"):
     """Initialize Gemini model. Change model_name if your account uses another."""
     genai.configure(api_key=api_key)
     return genai.GenerativeModel(model_name)
